@@ -1,0 +1,99 @@
+Jai Babe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library("ggsci")
+library("ggplot2")
+library("gridExtra")
+library(ggpubr)
+library(readxl)
+```
+
+```{r}
+
+file1 <- read_excel("~/Anjali_data/MYC_ddpcr_data/Input/All_MYC_reps_081426.xlsx")
+
+ids <- file1%>% filter(State%in% "FFPE") %>% select(ID) %>% unique()
+ids <- sprintf("%04d",ids$ID)
+```
+
+
+
+```{r}
+df1 <- file1%>% filter(State%in% "FFPE") %>% group_by(Sample) %>% mutate("mean_cnv"=mean(as.numeric(CNV))) %>% select(Sample,Type,ID,mean_cnv) %>% unique()
+
+df2 <- file1%>% filter(State%in% "Frozen") %>% group_by(Sample) %>% mutate("mean_cnv"=mean(as.numeric(CNV))) %>% select(Sample,Type,ID,mean_cnv) %>% unique()
+```
+
+
+
+
+```{r}
+p<- ggplot(df1, aes(x=Type, y=mean_cnv, fill = Type)) + 
+geom_boxplot(fill="white")+
+   scale_y_log10()+
+  geom_dotplot(binaxis='y', stackdir='center')+
+ # scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+ theme(legend.position="none")+
+  xlab("")+
+  ylab("Mean copy number (log10 scale)")+
+   theme(
+axis.title.x = element_text(color="black", size=12, face="bold"),
+axis.title.y = element_text(color="black", size=12, face="bold"),
+axis.text.x = element_text(color="black", size=12, face="bold"),
+axis.text.y = element_text(color="black", size=12, face="bold"),
+axis.line = element_line(colour = "black",size = 1, linetype = "solid"))+
+  stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+                 geom="pointrange", color="black")+scale_fill_manual(values=c("#999999", "#E41A1C"))
+
+
+p<- p+stat_compare_means(method = "t.test",label = "p.format")+ggtitle("FFPE")
+
+ 
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/comparative_NT_dotplots_FFPE_samples.pdf", height = 4, width = 5)
+p
+
+
+```
+
+
+```{r}
+p1 <- ggplot(df2, aes(x=Type, y=mean_cnv, fill = Type)) +
+geom_boxplot(fill="white")+
+   scale_y_log10()+
+  geom_dotplot(binaxis='y', stackdir='center',dotsize = 0.8)+
+ # scale_fill_brewer(palette="Dark2") +
+  theme_classic()+
+ theme(legend.position="none")+
+  xlab("")+
+  ylab("Mean copy number (log10 scale)")+
+   theme(
+axis.title.x = element_text(color="black", size=12, face="bold"),
+axis.title.y = element_text(color="black", size=12, face="bold"),
+axis.text.x = element_text(color="black", size=12, face="bold"),
+axis.text.y = element_text(color="black", size=12, face="bold"),
+axis.line = element_line(colour = "black",size = 1, linetype = "solid"))+
+  stat_summary(fun.data=mean_sdl, fun.args = list(mult=1),
+                 geom="pointrange", color="black")+scale_fill_manual(values=c("#999999", "#E41A1C"))
+
+
+p1<- p1+stat_compare_means(method = "t.test", label = "p.format")+ggtitle("Forzen")
+
+
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/comparative_NT_dotplots_frozen_samples.pdf", height = 4, width = 6)
+p1
+
+
+```
+
+
+

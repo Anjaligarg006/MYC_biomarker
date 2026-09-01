@@ -1,0 +1,56 @@
+Jai Babe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library("ggsci")
+library("ggplot2")
+library("gridExtra")
+library(ggpubr)
+```
+
+```{r}
+file1 <- read.csv("~/Anjali_data/MYC_ddpcr_data/Input/Cell_line_CNV.csv")
+
+```
+
+
+
+
+```{r}
+p<- ggplot(file1, aes(x=Type, y=CNV, fill = Type)) + 
+geom_boxplot(fill="white")+
+   scale_y_log10()+
+  geom_dotplot(binaxis='y', stackdir='center')+
+ # scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+ theme(legend.position="none")+
+  xlab("")+
+  ylab("Copy number (log10 scale)")+
+   theme(
+axis.title.x = element_text(color="black", size=12, face="bold"),
+axis.title.y = element_text(color="black", size=12, face="bold"),
+axis.text.x = element_text(color="black", size=12, face="bold"),
+axis.text.y = element_text(color="black", size=12, face="bold"),
+axis.line = element_line(colour = "black",size = 1, linetype = "solid"))+
+  stat_summary(fun.data=mean_sdl, fun.args = list(mult=1), 
+                 geom="pointrange", color="black")+scale_fill_manual(values=c("#999999", "#E41A1C"))
+
+
+#p<- p+stat_compare_means(method = "t.test",label = "p.format")+ggtitle("Cell-lines")
+
+ 
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/comparative_NT_dotplots_cell_lines.pdf", height = 4, width = 5)
+p
+
+
+```
+
+

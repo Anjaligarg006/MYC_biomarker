@@ -1,0 +1,294 @@
+Jai Babe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+setwd("~/Anjali_data/MYC_ddpcr_data/")
+
+library("edgeR")
+library("readxl")
+library("matrixStats")
+library("fgsea")
+library("tidyverse")
+library("msigdbr")
+library("ComplexHeatmap")
+library("tidyr")
+library(cluster)
+library(readxl)
+library(MCPcounter)
+library(RColorBrewer)
+library(reshape2)
+library(ggpubr)
+library(data.table)
+library(EnhancedVolcano)
+library(airway)
+library(magrittr)
+set.seed(1234)
+```
+
+
+```{r}
+
+Sample_ids <- read_excel("~/Anjali_data/MYC_ddpcr_data/Input/Myc CNV master sheet.xlsx",sheet = "Tissue CNV")
+
+ids <- data.frame("sample_id"=Sample_ids$`Subject Code`[Sample_ids$`Tissue type` %in% "Tumor"])
+ids$sample_id <- gsub("^0","", ids$sample_id) 
+ids$cluster <- "Without myc mutation"
+
+myc_genes_sample <- data.frame(Sample_id =c(
+"201","633","1016" ,"725","1006" ,"704","1703", "613","1412", "708","1015", "616","227", "1103" ,"627","310","640","706","1022", "602","301","701","709","712","713","1001", "1009", "1013" ,"1417", "1801", "2203", "2207", "2213"))
+
+myc_genes_sample$Sample_id <- gsub("^0","", (myc_genes_sample$Sample_id))
+
+ids$cluster <- ifelse(ids$sample_id %in% myc_genes_sample$Sample_id, "With MYC Amp", "Without MYC Amp")
+```
+
+
+```{r}
+
+Xdata1 <-read.delim('~/Anjali_data/mRNA_seq/Step1/input_file/CS028195: RNAseq COTC021, COTC022 Primary and Necropsy 55 samples: 10-23-2020/RawCountFile_rsemgenes.txt',header=TRUE)#RNA Count Data 
+colnames(Xdata1)<- gsub("X","",colnames(Xdata1))
+
+Xdata2 <-read.delim('~/Anjali_data/mRNA_seq/Step1/input_file/CS029382: RNAseq: COTC021, COTC022 Primary and Necropsy 143 samples: 05-11-2021/RawCountFile_rsemgenes.txt',header=TRUE)#RNA Count Data 
+colnames(Xdata2)<- gsub("X","",colnames(Xdata2))
+
+Xdata3 <-read.delim('~/Anjali_data/mRNA_seq/Step1/input_file/CS039862 RNAseq COTC021, COTC034 Primary/RawCountFile_rsemgenes[44].txt',header=TRUE)#RNA Count Data 
+colnames(Xdata3)<- gsub("X","",colnames(Xdata3))
+
+Xdata3 <- Xdata3[grep("034",colnames(Xdata3), invert = T)]
+
+
+Xdata4 <-read.delim('~/Anjali_data/mRNA_seq/Step1/input_file/CS041442/RawCountFile_rsemgenes.txt',header=TRUE)#RNA Count Data 
+colnames(Xdata4)<- gsub("X","",colnames(Xdata4))
+
+```
+
+
+```{r}
+# sample name edit
+colnames(Xdata1)<- gsub("_tumor|__Tumor","_prim_OS",colnames(Xdata1))
+colnames(Xdata1)<- gsub("^[0-9]_","",colnames(Xdata1))
+colnames(Xdata1)<- gsub("^[0-9][0-9]_","",colnames(Xdata1))
+colnames(Xdata1)<- gsub("_RNAla_Ter_","",colnames(Xdata1))
+colnames(Xdata1)<- gsub("Me_T__","MET_",colnames(Xdata1))
+colnames(Xdata1)<- toupper(colnames(Xdata1))
+gsub("_[0-9]","",Xdata1$GENE_ID) -> Xdata1$GENE_ID
+
+colnames(Xdata2)<- gsub("_tumor|__Tumor|_Tumor","_prim_OS",colnames(Xdata2))
+colnames(Xdata2)<- gsub("^[0-9]_","",colnames(Xdata2))
+colnames(Xdata2)<- gsub("^[0-9][0-9]_","",colnames(Xdata2))
+colnames(Xdata2)<- gsub("^[0-9][0-9][0-9]_","",colnames(Xdata2))
+colnames(Xdata2)<- toupper(colnames(Xdata2))
+gsub("_[0-9]","",Xdata2$GENE_ID) -> Xdata2$GENE_ID
+
+
+colnames(Xdata3)<- gsub("_RNA_Later_Tumor_A","_prim_OS",colnames(Xdata3))
+colnames(Xdata3)<- gsub("^[0-9]_","",colnames(Xdata3))
+colnames(Xdata3)<- gsub("^[0-9][0-9]_","",colnames(Xdata3))
+colnames(Xdata3)<- toupper(colnames(Xdata3))
+gsub("_[0-9]","",Xdata3$GENE_ID) -> Xdata3$GENE_ID
+
+colnames(Xdata4)<- toupper(colnames(Xdata4))
+colnames(Xdata4)<- gsub("_RNA_LATER_TUMOR_A|_TUMOR_B|_TUMOR_BRNA_11","_PRIM_OS",colnames(Xdata4))
+colnames(Xdata4)<- gsub("^[0-9]_","",colnames(Xdata4))
+colnames(Xdata4)<- gsub("^[0-9][0-9]_","",colnames(Xdata4))
+Xdata4 <- Xdata4[grep("MET|COTC034", colnames(Xdata4), invert =TRUE)]
+colnames(Xdata4)<- gsub("COTC022_|COTC021_","",colnames(Xdata4))
+gsub("_[0-9]","",Xdata4$GENE_ID) -> Xdata4$GENE_ID
+
+# select only primary OS
+Xdata1 <- Xdata1[grep("MET", colnames(Xdata1), invert =TRUE)]
+Xdata2 <- Xdata2[grep("MET", colnames(Xdata2), invert =TRUE)]
+
+
+```
+
+
+```{r}
+
+ #merge all data frames together
+merge_data1 <- merge(Xdata1, Xdata2, by = c("GENE_ID", "GENE_ID"), all.x = T)
+merge_data2 <- merge(merge_data1, Xdata3, by = c("GENE_ID", "GENE_ID"), all.x = T)
+merge_data3 <- merge(merge_data2, Xdata4, by = c("GENE_ID", "GENE_ID"), all.x = T)
+
+colnames(merge_data3)<- gsub(".y|.x|^0","",colnames(merge_data3))
+
+# removed duplicated genes
+duplicated_genes <- unique(merge_data3$GENE_ID[duplicated(merge_data3$GENE_ID)])
+merge_data3 <- merge_data3[!merge_data3$GENE_ID %in% duplicated_genes,]
+
+# get the RNAseq of matched samples
+df <- data.frame("sample"=colnames(merge_data3))
+df$sample_ed <- gsub("_PRIM_OS$","",df$sample) 
+df <- df[df$sample_ed %in% ids$sample_id,] 
+merge_data3 <- merge_data3[colnames(merge_data3) %in% c(df$sample,"GENE_ID")]
+
+merge_data3[is.na(merge_data3)] <- 0
+
+merge_data3 <- merge_data3[rowSums(merge_data3[, -1])>0,]
+
+merged_data_bk <- merge_data3
+
+#write.table(merge_data3, "~/Anjali_data/MYC_ddpcr_data/Output_files/mRNAseq62_rawdata.txt", sep = "\t", quote = F, row.names = F)
+
+
+```
+
+
+
+```{r}
+# DEG analysis
+
+genes <- merge_data3$GENE_ID
+names(genes) <- genes
+merge_data3$GENE_ID <- NULL
+
+# meta data file
+meta_data <- merge(df, ids, by.x = "sample_ed", by.y = "sample_id", all.x = T)
+#order the data as per matrix
+meta_data<- meta_data[match(colnames(merge_data3), meta_data$sample),]
+groups = factor(meta_data$cluster, levels = c("Without MYC Amp","With MYC Amp"))
+
+
+
+```
+
+
+```{r}
+
+counts.DGEList <- DGEList(counts = merge_data3, genes = genes, group = groups)
+counts.keep <- filterByExpr(y = counts.DGEList)
+counts.DGEList <- counts.DGEList[counts.keep, , keep.lib.sizes = FALSE]
+counts.DGEList <- calcNormFactors(counts.DGEList)
+
+counts.DGEList <- estimateDisp(counts.DGEList,design = model.matrix(~groups))
+Cont_OS.DGEExact <- exactTest(counts.DGEList, pair = c("Without MYC Amp","With MYC Amp"))
+DEGlist <- cbind(Cont_OS.DGEExact$genes, Cont_OS.DGEExact$table)
+
+write.csv(DEGlist, "~/Anjali_data/MYC_ddpcr_data/Output_files/mRNAseq62_myc_amp_unamp_DEGs.csv")
+
+```
+
+
+```{r}
+
+#DEGlist <- read.csv(file="~/Anjali_data/MYC_ddpcr_data/Output_files/mRNAseq62_myc_amp_unamp_DEGs.csv")
+
+msigdbr_df <- msigdbr(species = "dog", category = "H")
+msigdbr_list = split(x = msigdbr_df$gene_symbol, f = msigdbr_df$gs_name)
+
+names(msigdbr_list) <- gsub("HALLMARK_","",names(msigdbr_list))
+
+ranks <- DEGlist$logFC
+names(ranks) <- DEGlist$genes
+ranks <- sort(ranks, decreasing = T)
+
+```
+
+```{r}
+fgseaRes <- fgsea(pathways = msigdbr_list, 
+                  stats    = ranks,
+                  minSize  = 15,
+                  maxSize  = 500)
+
+saveRDS(fgseaRes, file="~/Anjali_data/MYC_ddpcr_data/Output_files/mRNAseq62_myc_amp_unamp_fgseaRes.rds")
+
+fwrite(fgseaRes, file="~/Anjali_data/MYC_ddpcr_data/Output_files/mRNAseq62_myc_amp_unamp_fgseaRes.tsv", sep="\t", sep2=c("", ",", ""))
+
+topPathwaysUp <- fgseaRes[ES > 0][head(order(pval), n=10), pathway] # pathways up in low DFI 
+topPathwaysDown <- fgseaRes[ES < 0][head(order(pval), n=10), pathway] # pathways down in low DFI 
+topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/mRNAseq62_myc_amp_unamp_fgseaRes.pdf", bg="white", height = 8, width = 10)
+
+plotGseaTable(msigdbr_list[topPathways], ranks, fgseaRes, 
+              gseaParam=0.5)
+
+```
+
+
+
+
+```{r}
+# pathway bar plots
+
+#fgseaRes <- readRDS(file="~/Anjali_data/MYC_ddpcr_data/Output_files/mRNAseq62_myc_amp_unamp_fgseaRes.rds")
+
+topPathwaysUp <- fgseaRes[ES > 0][head(order(pval), n=10), pathway] # pathways up in low DFI 
+topPathwaysDown <- fgseaRes[ES < 0][head(order(pval), n=10), pathway] # pathways down in low DFI 
+topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+
+# [pathway in myc amplified]
+path_up <- fgseaRes[fgseaRes$pathway %in% topPathwaysUp,] 
+path_up <- path_up[order(path_up$NES, decreasing = T),]
+
+# [pathway in myc unamplified]
+path_down <- fgseaRes[fgseaRes$pathway %in% topPathwaysDown,] 
+path_down$NES <- abs(path_down$NES)
+path_down <- path_down[order(path_down$NES, decreasing = T),]
+
+p1 <- ggplot(data = path_up, aes(x = reorder(pathway, -NES, decreasing=T), y = NES)) +
+  geom_bar(stat = "identity", color = "#E41A1C", fill = "white") +coord_flip()+theme_classic()+
+   theme(
+axis.title.x = element_text(color="black", size=14, face="bold"),
+axis.title.y = element_text(color="black", size=14, face="bold"),
+axis.text.x = element_text(color="black", size=14, face="bold"),
+axis.text.y = element_text(color="black", size=12, face="bold"),
+axis.line = element_line(colour = "black",size = 1, linetype = "solid"))+xlab("Pathway")+ylab("NES")
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/mRNAseq62_myc_amp_fgseaRes_top10.pdf", width = 6, height = 4, bg = "white")
+p1
+
+dev.off()
+
+p2 <- ggplot(data = path_down, aes(x = reorder(pathway, -NES, decreasing=T), y = NES)) +
+  geom_bar(stat = "identity", color = "#999999", fill = "white") +coord_flip()+theme_classic()+
+   theme(
+axis.title.x = element_text(color="black", size=14, face="bold"),
+axis.title.y = element_text(color="black", size=14, face="bold"),
+axis.text.x = element_text(color="black", size=14, face="bold"),
+axis.text.y = element_text(color="black", size=12, face="bold"),
+axis.line = element_line(colour = "black",size = 1, linetype = "solid"))+xlab("Pathway")+ylab("NES")
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/mRNAseq62_withoutmyc_amp_fgseaRes_top10.pdf", width = 6, height = 4, bg = "white")
+p2
+
+dev.off()
+
+```
+
+
+
+```{r}
+
+marker_genes <- read.delim("~/Anjali_data/CNV_data/Step_11/input_files/osteosarcoma_gene.txt", header = F)
+
+marker_degs <- DEGlist[grep(paste0("^",marker_genes$V1, "$",collapse = "|"), DEGlist$genes),] 
+
+marker_degs2 <- marker_degs[marker_degs$PValue<0.05,]
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/mRNAseq62_DEG_volcano.pdf", height = 14, width = 14, bg ="white")
+ EnhancedVolcano(DEGlist,
+  subtitle = "",
+    lab = DEGlist$genes,
+    x = 'logFC',
+    y = 'PValue',
+    title = 'with MYC amp versus without MYC amp',
+    pCutoff = 10e-6,
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 10.0,
+    colAlpha = 1,
+  col = c("#747678",  "#F0AB00", "#CD202C","#2A6EBB"), selectLab = marker_degs2$genes,
+  legendPosition = "bottom", boxedLabels = T, drawConnectors = T, maxoverlapsConnectors = 200, raster = T, arrowheads = F)
+ 
+dev.off()
+
+```
+
+

@@ -1,0 +1,336 @@
+Jai Babe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(colorRamps)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(colorRamp2)
+library(Polychrome)
+library(data.table)
+library(viridis)
+library(readxl)
+setwd("~/Anjali_data/MYC_ddpcr_data/")
+```
+
+
+```{r}
+# load files
+
+file1 <- read.delim("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/gatk_cnv/step_4/output_files/32_k9cellline_gatk_cnv_annoated_seg_withfilter.csv", header = T, sep = ",")
+file1 <- file1[grep("TNO_B|V21_LDCV|PI_KOS_2|OSCA_M11|V21_LDR",file1$sample_id, invert =T),]
+
+# not included in ddpcr
+file1 <- file1[grep("8_FACC_18_COS3_A|15_OSCA_40_A|39_TOK_C",file1$sample_id, invert =T),]
+
+
+file1$sample_id <- gsub("^[0-9]+_","",file1$sample_id)
+
+file3 <- read_excel("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/gatk_cnv/step_4/input_files/K9_OS_cell_line_catalog-04082025.xlsx", sheet = "Sample_info")
+
+# genes selected as per pathways
+file4 <- read_excel("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/pathways/pathway_mapped_genes.xlsx", sheet = "Sheet2")# slected genes pathways
+
+
+#file4 <- read_excel("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/pathways/pathway_mapped_genes.xlsx", sheet = "Sheet6")
+```
+
+
+
+
+```{r, warning=FALSE}
+# MRE11A 
+# Split the genes in file1$gene into individual gene names
+file1_split <- file1 %>%
+  mutate(gene = str_split(gene_name, ";")) %>%      
+  unnest(gene)                                 
+
+# Now, filter rows where gene matches any value in file2$V1
+result <- file1_split %>%
+  filter(gene %in% file4$V1) %>% 
+  dplyr::select("sample_id", "calls", "gene")%>% unique() %>%
+  pivot_wider(names_from = "sample_id", values_from = "calls")
+rownames(result) <- result$gene
+
+# Apply mean to each element in the column some of genes in sapmle have multiple seg value henceforth I took mean of all
+result_mean <- as.data.frame(lapply(result, function(column) {
+  sapply(column, mean)  
+}))
+
+result_mean <- result_mean[-1]
+colnames(result_mean) <- gsub("^X","", colnames(result_mean))
+#colnames(result_mean) <- gsub("_[A-C].cns","", colnames(result_mean))
+
+
+#https://www.nature.com/articles/s41598-020-57942-7
+result_mean[result_mean >0 & result_mean < 0.2] <- ""
+result_mean[result_mean < 0 & result_mean < -0.2] <- ""
+
+
+# Absent : "DMD"    "FANCB"  "MRE11A" "ATRX" 
+file4 <- file4[file4$V1 %in% rownames(result_mean),]
+
+```
+
+
+
+
+
+
+```{r}
+
+
+result_mean[result_mean != "" & result_mean > 0] <- "AMP"
+result_mean[result_mean != "" & result_mean < 0 ] <- "DEL"
+result_mean[result_mean == 0] <-"" 
+
+
+result_mean <- result_mean[match(rownames(result_mean),file4$V1),]
+
+m <- match(file4$V1, rownames(result_mean))
+result_mean <- result_mean[m, ]
+
+```
+
+
+
+```{r}
+
+set.seed(98765)
+annot_file <- file1_split %>%
+  filter(gene %in% file4$V1)%>% 
+  dplyr::select("gene", "seqnames")%>% unique()
+
+
+cols = brewer.pal(3, "Set1")[c(1, 2)]
+names(cols) = c("AMP", "DEL")
+
+annot_file <- annot_file[match(rownames(result_mean),annot_file$gene),]
+
+all(rownames(result_mean) == annot_file$gene)
+# build-in color palette
+Glasbey = glasbey.colors(32)
+
+annot_cols = list(
+  "seqnames" = setNames(Glasbey, unique(annot_file$seqnames))
+)
+
+ha = rowAnnotation(chr=annot_file$seqnames,  col = annot_cols, rn = anno_text(annot_file$seqnames, location = 1,rot = 0, just = "right",gp = gpar(fontsize = 12)),show_legend = FALSE)
+#########
+
+annot_file2 <- data.frame("Sample_ID"=colnames(result_mean))
+
+merge_data <- merge(annot_file2, file3, by.x = "Sample_ID", by.y = "File_name", all.x = T)
+
+colnames(result_mean)<- gsub("^[0-9]+_","", colnames(result_mean))
+
+setDT(merge_data)
+```
+
+
+
+```{r}
+# SV
+
+delly_out <- read.csv("/home/garga7/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/DELLY_output/canine_cellline/output_files/delly_count_K9.csv", sep = ",")
+delly_out$sample_id <- as.character(delly_out$sample_id)
+
+delly_out$sample_id <- gsub("^[0-9]+_","",delly_out$sample_id)
+
+out1 <- table(delly_out$Alternative.allele, delly_out$sample_id)
+out2 <- (apply(out1, 1, function(x) x/sum(x)))
+out2 <- out2[match(colnames(result_mean), rownames(out2)),]
+
+rownames(out2) <- colnames(result_mean)
+out2[is.na(out2)] <- 0
+
+custom_colors1 <- c("DUP" = "#b5d1ae", "DEL" = "#80ae9a", "INV" = "#326b77", "BND" = "#1b485e")
+
+ha1 <- HeatmapAnnotation(SV = anno_barplot(out2,
+    gp = gpar(fill = custom_colors1[colnames(out2)]),bar_width = 1, height = unit(4, "cm")))
+
+
+plot(ha1)
+```
+
+
+```{r}
+# SNVs
+
+file_list <- list.files("/home/garga7/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/consencus_SNV/canine_celllines", full.names = T, recursive = T, pattern = ".eff.maf")
+
+conses_out <- lapply(1:length(file_list), function(x){
+  
+  conses_out <- read.csv(file_list[x], sep = "\t", skip = 1)
+  
+  return(conses_out)
+  
+})
+  
+combin_out2 <- do.call(rbind, conses_out)
+combin_out2 <- combin_out2[!combin_out2$IMPACT == "MODIFIER",]
+combin_out2<- combin_out2[grep (",", combin_out2$Consequence, invert = T),] 
+#combin_out2<- combin_out2[grep ("start_lost|stop_lost", combin_out2$Consequence, invert = T),] 
+
+#############
+
+combin_out2$Tumor_Sample_Barcode <- gsub("^[0-9]+_","",combin_out2$Tumor_Sample_Barcode)
+
+outa1 <- table(combin_out2$Consequence, combin_out2$Tumor_Sample_Barcode)
+
+outa2 <- (apply(outa1, 1, function(x) x/sum(x)))
+
+outa2 <- outa2[match(colnames(result_mean), rownames(outa2)),]
+
+rownames(outa2) <- colnames(result_mean)
+outa2[is.na(outa2)] <- 0
+
+custom_colors2 <- c("start_lost" = "grey80","stop_lost"="grey70","stop_retained_variant"="gray60","missense_variant" = "grey50", "splice_acceptor_variant" = "grey40", "splice_donor_variant" = "grey30",  "stop_gained"="grey20", "synonymous_variant"="grey0")
+
+
+scale_colour_brewer()
+
+ha2 <- HeatmapAnnotation(SNV = anno_barplot(outa2,
+    gp = gpar(fill = custom_colors2[colnames(outa2)]),bar_width = 1, height = unit(4, "cm")))
+
+
+ha3 <- HeatmapAnnotation(
+    SNV = anno_barplot(outa2,gp = gpar(fill = custom_colors2[colnames(outa2)]),bar_width = 1, height = unit(4, "cm"), annotation_legend_param = list(SNV = list(title = "SNV"))),
+    
+    SV = anno_barplot(out2, gp = gpar(fill = custom_colors1[colnames(out2)]),bar_width = 1, height = unit(4, "cm"))
+    
+    )
+
+lgd1 <- Legend(
+  labels = names(custom_colors2),
+  title = "SNV",
+  legend_gp = gpar(fill = custom_colors2)
+)
+
+lgd2 <- Legend(
+  labels = names(custom_colors1),
+  title = "SV",
+  legend_gp = gpar(fill = custom_colors1)
+)
+
+plot(ha3)
+```
+
+
+
+```{r}
+source("~/Anjali_data/CNV_data/Step_15/notebook/anno_text_fix.R")
+
+anno <- columnAnnotation(
+  Sex = setNames(merge_data$Gender, merge_data$Sample_ID)[colnames(result_mean)],
+  na_col='grey',
+  show_annotation_name = TRUE,
+  annotation_name_side = 'left',
+  annotation_name_rot = 0,
+  gp = gpar(col = "white"),
+  col = list(Sex=c('male'='slategray3', 'female'='palevioletred2')))
+```
+
+
+
+```{r}
+           alter_fun = list(
+             background = alter_graphic("rect", width = 0.9, height = 0.9, fill = "#FFFFFF", col = "black"),
+             AMP = alter_graphic("rect", width = 0.85, height = 0.85, fill = cols["AMP"]),
+             DEL = alter_graphic("rect", width = 0.85, height = 0.85, fill = cols["DEL"])
+           )
+```
+
+
+
+```{r}
+n_donors <- ncol(result_mean)
+
+right_anno <- rowAnnotation(N=anno_text_fix(sapply(apply(result_mean, 1, function(x) sum(nchar(x)>0)), 
+                                                   function(x) sprintf("%.0f%% (%.0f)", 100*x/n_donors, x)), 
+                                              rot=0, just='left', location=unit(0, 'npc'), show_name=F,
+                                              height=unit(5, 'mm'), which='row'))
+
+op <- oncoPrint(result_mean, alter_fun=alter_fun, col=cols, bottom_annotation=anno, top_annotation = ha3, row_order = file4$V1,
+                show_column_names=T, left_annotation = ha, 
+                show_heatmap_legend=T, row_names_side='left', show_pct = F, pct_gp = gpar(fontsize = 12),
+                column_gap = unit(2, "mm"), row_gap = unit(5, "mm"), alter_fun_is_vectorized = FALSE)
+
+ComplexHeatmap::draw(op, merge_legend = TRUE, heatmap_legend_side = "bottom", annotation_legend_side = "bottom")
+
+
+#pdf('/home/garga7/Anjali_data/MYC_ddpcr_data/Plots/24_k9cellline_gatk_cnv_annoated_withfilter_complete_pathways.pdf', width=10, height=12)
+ComplexHeatmap::draw(op, merge_legend = TRUE, heatmap_legend_side = "bottom",annotation_legend_side = "bottom",annotation_legend_list = list(lgd1, lgd2))
+dev.off()
+
+```
+
+
+```{r}
+
+cnv <- t(result_mean)
+cnv[cnv=="AMP"] <- "Amplification"
+cnv[cnv=="DEL"] <- "Deletion"
+cnv <- as.data.frame(cnv)
+cnv$Sample_ID <- rownames(cnv)
+rownames(cnv) <- NULL
+
+sv_data <- as.data.frame(out2)
+sv_data$Sample_ID <- rownames(sv_data)
+rownames(sv_data) <- NULL
+
+
+snv_data <- as.data.frame(outa2)
+snv_data$Sample_ID <- rownames(snv_data)
+rownames(snv_data) <- NULL
+
+library(purrr)
+df_list <- list(merge_data, cnv,sv_data,snv_data)
+merged_df <- reduce(df_list, left_join, by = "Sample_ID")
+
+
+#write.csv(merged_df,'/home/garga7/Anjali_data/MYC_ddpcr_data/Output_files/k9cellline_all_genes.csv')
+```
+
+
+```{r}
+result_mean <- as.data.frame(result_mean)
+result_mean$geneid <- rownames(result_mean)
+
+df<- result_mean %>% pivot_longer(!geneid, names_to = "sample_id", values_to = "CNV")
+
+df <- df[df$CNV !="",]
+
+df <- table(df$geneid, df$CNV)
+
+#write.csv(df,'/home/garga7/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/gatk_cnv/step_3/output_file/pathway_sorted_genes_cellline_27_var_count.csv')
+
+```
+
+
+```{r}
+# count the marker gene data:
+counts <- data.frame(
+  Gene = rownames(result_mean),
+  AMP_Count = apply(result_mean, 1, function(x) sum(x == "AMP", na.rm = TRUE)),
+  AMP_percent = apply(result_mean, 1, function(x) sum(x == "AMP", na.rm = TRUE)/length(x)*100),
+  DEL_Count = apply(result_mean, 1, function(x) sum(x == "DEL", na.rm = TRUE)),
+  DEL_percent = apply(result_mean, 1, function(x) sum(x == "DEL", na.rm = TRUE)/length(x)*100)
+)
+counts1 <- merge(file2, counts, by.x = "V1", by.y = "Gene", all.x = TRUE)
+
+#write.csv(counts1,"/home/garga7/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/gatk_cnv/step_4/output_file/32_k9cellline_gatk_cnv_annoated_withfilter.csv", quote = F, row.names = F)
+```
+
+
+

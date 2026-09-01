@@ -1,0 +1,607 @@
+Jai Babe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(colorRamps)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(colorRamp2)
+library(Polychrome)
+library(data.table)
+library(viridis)
+library(readxl)
+library("ggsci")
+library("ggplot2")
+library("gridExtra")
+setwd("~/Anjali_data/CNV_data/Step_15/")
+```
+
+
+
+```{r}
+# selected 62 samples
+
+Sample_ids <- read_excel("~/Anjali_data/MYC_ddpcr_data/Input/Myc CNV master sheet.xlsx",sheet = "Tissue CNV")
+
+ids <- Sample_ids$`Subject Code`[Sample_ids$`Tissue type` %in% "Tumor"]
+ids <- gsub("^0","", ids) 
+```
+
+
+```{r}
+# load files
+
+file1 <- read.delim("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/gatk_cnv/step_3/input_file/gatk_cnv_annoated_seg2.csv", header = T, sep = ",")
+
+file2 <- read.csv("/home/garga7/Anjali_data/WGS_data/Step_13/output_file/comnined_54_out.csv")
+
+```
+
+```{r}
+#metadata
+file3 <- read_excel("~/Anjali_data/CNV_data/Step_15/Input_files/COTC021, 026 and 030 Demographics and NAS 11-26-24.xlsx", sheet = "COTC021 22")
+
+# genes selected as per pathways
+#file4 <- read_excel("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/pathways/pathway_mapped_genes.xlsx", sheet = "Sheet2") # slected genes pathways
+file4 <- read_excel("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/pathways/pathway_mapped_genes.xlsx", sheet = "Sheet5") # all genes
+
+```
+
+
+```{r}
+
+file3_ed <- file3[grep(paste("^",ids, "$",sep = "",collapse = "|"), file3$`Patient ID...82`),]
+
+write.csv(file3_ed,"~/Anjali_data/MYC_ddpcr_data/Output_files/deep62_clinical_data.csv")
+
+```
+
+
+```{r}
+
+# tumor purity and ploidy
+#part1
+file5a <- read.delim("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/ichorCNA_data/output_file/55deep_samples_purity.txt", header = F, sep = "\t")
+
+colnames(file5a) <- c("Sample_id","purity")
+
+
+#part2
+file5b <- read.delim("~/Anjali_data/WGS_data/Step_15/54deep_samples_purity.txt", header = F, sep = "\t")
+
+colnames(file5b) <- c("Sample_id","purity")
+
+# filter samples
+file5 <-  rbind(file5a,file5b)
+
+file5 <- file5[grep(paste("^",ids, "$",sep = "",collapse = "|"),file5$Sample_id),] # not all samples have TMB data
+
+```
+
+
+
+```{r}
+# ploidy
+#part1
+file6a <- read.delim("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/ichorCNA_data/output_file/55deep_samples_ploidy.txt", header = F, sep = "\t")
+
+file6a$V2 <- round(file6a$V2, 1)
+
+colnames(file6a) <- c("Sample_id","ploidy")
+
+# part2
+file6b <- read.delim("~/Anjali_data/WGS_data/Step_15/54deep_samples_ploidy.txt", header = F, sep = "\t")
+
+file6b$V2 <- round(file6b$V2, 1)
+
+colnames(file6b) <- c("Sample_id","ploidy")
+
+# filter samples
+file6<-  rbind(file6a,file6b)
+
+file6 <- file6[grep(paste("^",ids, "$",sep = "",collapse = "|"),file6$Sample_id ),] # not all samples have TMB data
+
+```
+
+
+
+```{r}
+#TMB
+## part1
+file7a <- read.csv("/home/garga7/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/TMB_cal/55deep_TMB_score.csv", row.names = NULL)
+file7a$sample_ids <- as.character(file7a$sample_ids)
+file7a$X <- NULL
+file7a$TMB <- round(file7a$TMB, 1)
+
+##part2
+ file7b <- read.csv("/home/garga7/Anjali_data/WGS_data/Step_16/54deep_TMB_score.csv", row.names = NULL)
+ file7b$sample_ids <- as.character(file7b$sample_ids)
+ file7b$X <- NULL
+ file7b$TMB <- round(file7b$TMB, 1)
+ 
+file7 <-  rbind(file7a,file7b)
+
+file7 <- file7[grep(paste("^",ids, "$",sep = "",collapse = "|"),file7$sample_ids),] # not all samples have TMB data
+
+```
+
+
+```{r, warning=FALSE}
+#part1
+# Split the genes in file1$gene into individual gene names
+file1_split <- file1 %>%
+  mutate(gene = str_split(gene_name, ";")) %>%      
+  unnest(gene)                                 
+
+
+# Now, filter rows where gene matches 
+result1 <- file1_split %>%
+  dplyr::filter(gene %in% file4$V1
+                ) %>% 
+  dplyr::select("sample_id", "calls", "gene")%>% unique() %>%
+  pivot_wider(names_from = "sample_id", values_from = "calls")
+rownames(result1) <- result1$gene
+
+result_mean1 <- as.data.frame(lapply(result1, function(column) {
+  sapply(column, mean)  
+}))
+
+result_mean1 <- result_mean1[-1]
+colnames(result_mean1) <- gsub("^X","", colnames(result_mean1))
+
+```
+
+
+
+```{r}
+#part2
+ref_seq_genes <- read.delim("~/Anjali_data/CNV_data/Step_1/canFam4_ref/uuGene_bedfile_camFam4.txt", header = F)
+ref_seq_genes$V4 <- gsub("\\.\\d+","",ref_seq_genes$V4)
+ref_seq_genes$V4 <- toupper(ref_seq_genes$V4)
+ref_seq_genes$V4[ref_seq_genes$V4 %in% "P53"] <- "TP53"
+
+#########
+file2_split <- file2 %>%
+  mutate(genes = str_split(gene, ",")) %>%      
+  unnest(genes)                                 
+
+file2_split$genes <- gsub("\\.\\d+","",file2_split$genes)
+
+file2_split$genes <- toupper(file2_split$genes)
+file2_split$genes[file2_split$genes %in% "P53"] <- "TP53"
+
+
+file2_split <- file2_split[file2_split$chromosome %in% ref_seq_genes$V1 & file2_split$genes %in% ref_seq_genes$V4  ,]#& file1_split$genes %in% file4$V1
+             
+
+# Now, filter rows where gene matches any value in file2$V1
+result2 <- file2_split %>% as.data.frame()%>%
+  filter(genes %in% file4$V1) %>% 
+  select("sample_id", "log2", "genes")%>% unique()%>%
+  pivot_wider(names_from = "sample_id", values_from = "log2")
+
+rownames(result2) <- result2$genes
+
+
+# Apply mean to each element in the column some of genes in sapmle have multiple seg value henceforth I took mean of all
+result_mean2 <- as.data.frame(lapply(result2, function(column) {
+  sapply(column, mean)  
+}))
+
+result_mean2 <- result_mean2[-1]
+colnames(result_mean2) <- gsub("^X","", colnames(result_mean2))
+
+```
+
+
+```{r}
+result_mean1$RowName <- rownames(result_mean1)
+result_mean2$RowName <- rownames(result_mean2)
+
+merged_df <- merge(result_mean1, result_mean2, by = "RowName")
+rownames(merged_df) <- merged_df$RowName
+
+merged_df <- merged_df[grep(paste("^",ids, "$",sep = "",collapse = "|"),colnames(merged_df))] 
+result_mean <- merged_df
+```
+
+
+```{r}
+
+myc_log2 <- result_mean[50,] %>% pivot_longer(everything(),names_to = "Samples", values_to = "log2ratio")
+
+write.csv(myc_log2,"~/Anjali_data/MYC_ddpcr_data/Output_files/deep62_log2ratio.csv")
+
+```
+
+
+```{r}
+
+result_mean[result_mean >0 & result_mean < 0.2] <- ""
+result_mean[result_mean < 0 & result_mean < -0.2] <- ""
+
+result_mean[result_mean != "" & result_mean > 0] <- "AMP"
+result_mean[result_mean != "" & result_mean < 0 ] <- "DEL"
+result_mean[result_mean == 0] <-"" 
+
+file4<- file4[file4$V1 %in% rownames(result_mean),] 
+
+result_mean <- result_mean[match(rownames(result_mean),file4$V1),]
+
+
+m <- match(file4$V1, rownames(result_mean))
+result_mean <- result_mean[m, ]  
+```
+
+```{r}
+
+# to found MYC amp samples for survival
+#result_mean$gene <- rownames(result_mean)
+#result_mean[grep("MYC", result_mean$gene),]%>% pivot_longer(everything(), names_to = "ids", values_to = "status") %>% filter(status %in% "AMP") %>% select(ids) %>% as.list()
+
+
+file2_split$log2[file2_split$log2 >0 & file2_split$log2 < 0.2] <- ""
+file2_split$log2[file2_split$log2 < 0 & file2_split$log2 < -0.2] <- ""
+file2_split[file2_split$genes %in% "MYC" & file2_split$sample_id %in% "709",] %>% View()
+
+```
+
+```{r}
+
+set.seed(98765)
+annot_file <- file1_split %>%
+  dplyr::filter(gene %in% file4$V1)%>% 
+  dplyr::select("gene", "seqnames")%>% unique()
+
+
+cols = brewer.pal(3, "Set1")[c(1, 2)]
+names(cols) = c("AMP", "DEL")
+
+annot_file <- annot_file[match(rownames(result_mean),annot_file$gene),]
+
+all(rownames(result_mean) == annot_file$gene)
+# build-in color palette
+#Glasbey = glasbey.colors(31)
+Glasbey = glasbey.colors(32)
+
+annot_cols = list(
+  "seqnames" = setNames(Glasbey, unique(annot_file$seqnames))
+)
+
+ha = rowAnnotation(chr=annot_file$seqnames,  col = annot_cols, rn = anno_text(annot_file$seqnames, location = 1,rot = 0, just = "right",gp = gpar(fontsize = 12)),show_legend = FALSE)
+#########
+
+annot_file2 <- data.frame("Sample_ID"=colnames(result_mean))
+annot_file2$Sample_ID_ed <- gsub("^0","", annot_file2$Sample_ID)
+
+merge_data <- merge(annot_file2, file3, by.x = "Sample_ID", by.y = "Patient ID...82", all.x = T)
+annot_file2$breed <- merge_data$breed[match(colnames(result_mean), merge_data$Sample_ID)]
+
+# add purity and ploidy
+merge_data <- merge(merge_data, file5, by.x = "Sample_ID", by.y = "Sample_id", all.x = T)
+merge_data <- merge(merge_data, file6, by.x = "Sample_ID", by.y = "Sample_id", all.x = T)
+merge_data <- merge(merge_data, file7, by.x = "Sample_ID", by.y = "sample_ids", all.x = T)
+
+
+```
+
+
+```{r}
+# SV
+#part1
+delly_outa <- read.csv("/home/garga7/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/DELLY_output/output_files/delly_count.csv", sep = ",")
+#part2
+delly_outb <- read.csv("/home/garga7/Anjali_data/WGS_data/Step_4/delly_count.csv", sep = ",")
+
+delly_out <- rbind(delly_outa,delly_outb)
+
+delly_out$sample_id <- as.character(delly_out$sample_id)
+out1 <- table(delly_out$Alternative.allele, delly_out$sample_id)
+out2 <- (apply(out1, 1, function(x) x/sum(x)))
+out2 <- out2[match(colnames(result_mean), rownames(out2)),]
+
+rownames(out2) <- colnames(result_mean)
+out2[is.na(out2)] <- 0
+
+custom_colors1 <- c("DUP" = "#b5d1ae", "DEL" = "#80ae9a", "INV" = "#326b77", "BND" = "#1b485e")
+
+ha1 <- HeatmapAnnotation(SV = anno_barplot(out2,
+    gp = gpar(fill = custom_colors1[colnames(out2)]),bar_width = 1, height = unit(4, "cm")))
+
+
+plot(ha1)
+
+```
+
+
+```{r}
+# SNVs
+#part1
+file_list1 <- list.files("/home/garga7/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/consencus_SNV", full.names = T, recursive = T, pattern = ".eff.maf")
+
+
+file_list1 <- file_list1[grep("canine",file_list1, invert = T)]
+conses_out1 <- lapply(1:length(file_list1), function(x){
+  
+  conses_out <- read.csv(file_list1[x], sep = "\t", skip = 1)
+  
+  return(conses_out)
+  
+})
+    
+  combin_out2a <- do.call(rbind, conses_out1)
+  combin_out2a <- combin_out2a[!combin_out2a$IMPACT == "MODIFIER",]
+  combin_out2a<- combin_out2a[grep (",", combin_out2a$Consequence, invert = T),] 
+  combin_out2a$sample_ids <- gsub("^[0-9]+_|_Tumor|_tumol|^0","",combin_out2a$Tumor_Sample_Barcode, ignore.case = T)
+  combin_out2a$sample_ids <- gsub("^0","",combin_out2a$sample_ids)
+  
+  combin_out2a<- combin_out2a[grep ("start_lost|stop_lost", combin_out2a$Consequence, invert = T),] 
+  
+```
+
+```{r}
+#part2
+
+file_list2 <- list.files("/home/garga7/Anjali_data/WGS_data/Step_12", full.names = T, recursive = T, pattern = ".eff.maf")
+
+conses_out2 <- lapply(1:length(file_list2), function(x){
+  
+  conses_out <- read.csv(file_list2[x], sep = "\t", skip = 1)
+  
+  return(conses_out)
+  
+})
+  
+combin_out2b <- do.call(rbind, conses_out2)
+combin_out2b <- combin_out2b[!combin_out2b$IMPACT == "MODIFIER",]
+combin_out2b<- combin_out2b[grep (",", combin_out2b$Consequence, invert = T),] 
+combin_out2b$sample_ids <- gsub("_tumor$","",combin_out2b$Tumor_Sample_Barcode, ignore.case = T)
+combin_out2b$sample_ids <- gsub("^0","",combin_out2b$sample_ids)
+
+combin_out2b <- combin_out2b[grep ("start_lost|stop_lost", combin_out2b$Consequence, invert = T),] 
+
+```
+
+
+```{r}
+
+combin_out2 <- rbind(combin_out2a,combin_out2b) 
+
+#############
+
+outa1 <- table(combin_out2$Consequence, combin_out2$sample_ids)
+outa2 <- (apply(outa1, 1, function(x) x/sum(x)))
+
+outa2 <- outa2[match(colnames(result_mean), rownames(outa2)),]
+
+rownames(outa2) <- colnames(result_mean)
+outa2[is.na(outa2)] <- 0
+
+custom_colors2 <- c("missense_variant" = "#d4d4d4", "splice_acceptor_variant" = "#bababa", "splice_donor_variant" = "#a1a1a1",  "stop_gained"="#7f7f7f", "synonymous_variant"="#262626")
+
+#custom_colors2 <- c("missense_variant" = "#8c510a", "splice_acceptor_variant" = "#f6e8c3", "splice_donor_variant" = "#c7eae5",  "stop_gained"="#5ab4ac", "synonymous_variant"="#01665e")
+
+
+
+ha2 <- HeatmapAnnotation(SNV = anno_barplot(outa2,
+    gp = gpar(fill = custom_colors2[colnames(outa2)]),bar_width = 1, height = unit(4, "cm")))
+
+
+ha3 <- HeatmapAnnotation(
+    SNV = anno_barplot(outa2,gp = gpar(fill = custom_colors2[colnames(outa2)]),bar_width = 1, height = unit(4, "cm"), annotation_legend_param = list(SNV = list(title = "SNV"))),
+    
+    SV = anno_barplot(out2, gp = gpar(fill = custom_colors1[colnames(out2)]),bar_width = 1, height = unit(4, "cm"))
+    
+    )
+
+lgd1 <- Legend(
+  labels = names(custom_colors2),
+  title = "SNV",
+  legend_gp = gpar(fill = custom_colors2)
+)
+
+lgd2 <- Legend(
+  labels = names(custom_colors1),
+  title = "SV",
+  legend_gp = gpar(fill = custom_colors1)
+)
+
+plot(ha3)
+
+plot(ha2)
+```
+
+
+```{r}
+# Age scale
+setDT(merge_data)
+
+merge_data$age_group = 'none'
+merge_data[,age_group:=ifelse(age < 4, "< 4 years", age_group)]
+merge_data[,age_group:=ifelse(age >= 4 & merge_data$age < 8, "4-8 years", age_group)]
+merge_data[,age_group:=ifelse(age == 8, "4-8 years", age_group)]
+merge_data[,age_group:=ifelse(age > 8, "> 8 years", age_group)]
+merge_data$age_group <- factor(merge_data$age_group, levels=c("< 4 years", "4-8 years", "> 8 years"))
+
+# DFI scale
+
+merge_data$DFI_group = 'none'
+merge_data[,DFI_group:=ifelse(`DFI (sx to off study)` < 90, "< 90 days", DFI_group)]
+merge_data[,DFI_group:=ifelse(`DFI (sx to off study)` >= 90 & merge_data$`DFI (sx to off study)` < 180, "90-180 days", DFI_group)]
+merge_data[,DFI_group:=ifelse(`DFI (sx to off study)` == 180, "90-180 days", DFI_group)]
+merge_data[,DFI_group:=ifelse(`DFI (sx to off study)` > 180, "> 180 days", DFI_group)]
+merge_data$DFI_group <- factor(merge_data$DFI_group, levels=c("< 90 days", "90-180 days", "> 180 days"))
+
+# Tumor location
+merge_data$Tumor_group = merge_data$`Tumor Location`
+
+merge_data$Tumor_group[grep("humerus",merge_data$Tumor_group)] <- "humerus"
+merge_data$Tumor_group[grep("ulna",merge_data$Tumor_group)] <- "ulna"
+merge_data$Tumor_group[grep("radius",merge_data$Tumor_group)] <- "radius"
+merge_data$Tumor_group[grep("femur",merge_data$Tumor_group)] <- "femur"
+merge_data$Tumor_group[grep("tibia",merge_data$Tumor_group)] <- "tibia"
+merge_data$Tumor_group[grep("scapula",merge_data$Tumor_group)] <- "scapula"
+merge_data$Tumor_group <- factor(merge_data$Tumor_group, levels=c("humerus","ulna","radius","femur","tibia","scapula"))
+
+#ALP 
+merge_data$ALP_group = merge_data$ALP
+merge_data$ALP_group <- ifelse(merge_data$ALP_group == "Normal",0,1)
+
+# purity
+merge_data$purity_group = 'none'
+
+merge_data[, purity_group := fifelse(
+  purity < 0.1, "< 0.1",
+  fifelse(purity < 0.3, "0.1-0.3",
+    fifelse(purity <= 0.7, "0.3-0.7", "> 0.7")
+  )
+)]
+
+merge_data[, purity_group := factor(
+  purity_group,
+  levels = c("< 0.1","0.1-0.3","0.3-0.7","> 0.7")
+)]
+
+
+# ploidy
+merge_data$ploidy_group = 'none'
+merge_data[,ploidy_group:=ifelse(ploidy < 2, "< 2", ploidy_group)]
+merge_data[,ploidy_group:=ifelse(ploidy == 2, "2", ploidy_group)]
+merge_data[,ploidy_group:=ifelse(ploidy > 2, "2-3", ploidy_group)]
+merge_data$ploidy_group <- factor(merge_data$ploidy_group, levels=c("< 2", "2", "2-3"))
+
+# TMB
+merge_data$TMB_group = 'none'
+merge_data[,TMB_group:=ifelse(TMB < 0.5, "< 0.5", TMB_group)]
+merge_data[,TMB_group:=ifelse(TMB >= 0.5 & TMB <= 1, "0.5-1", TMB_group)]
+merge_data[,TMB_group:=ifelse(TMB > 1, "< 2", TMB_group)]
+merge_data$TMB_group <- factor(merge_data$TMB_group, levels=c("< 0.5", "0.5-1", "< 2"))
+
+```
+
+
+
+```{r}
+
+
+cnv <- t(result_mean)
+cnv[cnv=="AMP"] <- "Amplification"
+cnv[cnv=="DEL"] <- "Deletion"
+cnv <- as.data.frame(cnv)
+cnv$Sample_ID_ed <- rownames(cnv)
+rownames(cnv) <- NULL
+
+sv_data <- as.data.frame(out2)
+sv_data$Sample_ID_ed <- rownames(sv_data)
+rownames(sv_data) <- NULL
+
+
+snv_data <- as.data.frame(outa2)
+snv_data$Sample_ID_ed <- rownames(snv_data)
+rownames(snv_data) <- NULL
+
+library(purrr)
+df_list <- list(merge_data, cnv,sv_data,snv_data)
+merged_df <- reduce(df_list, left_join, by = "Sample_ID_ed")
+    
+write.csv(merged_df,'/home/garga7/Anjali_data/MYC_ddpcr_data/Output_files/deep_62_samples_all_genomicdata.csv')
+
+```
+
+
+```{r}
+source("~/Anjali_data/CNV_data/Step_15/notebook/anno_text_fix.R")
+
+anno <- columnAnnotation(
+   ALP=anno_text_fix(setNames(merge_data$ALP_group, merge_data$Sample_ID_ed)[colnames(result_mean)], 
+                       rot=0, gp = gpar(fontsize = 10), just='center', location=unit(0.5, 'npc'), show_name=T,
+                       height=unit(5, 'mm')),
+  Age = setNames(merge_data$age_group, merge_data$Sample_ID_ed)[colnames(result_mean)],
+  Purity = setNames(merge_data$purity_group, merge_data$Sample_ID_ed)[colnames(result_mean)],
+  Ploidy = setNames(merge_data$ploidy_group, merge_data$Sample_ID_ed)[colnames(result_mean)],
+  TMB = setNames(merge_data$TMB_group, merge_data$Sample_ID_ed)[colnames(result_mean)],
+  Sex = setNames(merge_data$Sex, merge_data$Sample_ID_ed)[colnames(result_mean)],
+  TME = setNames(merge_data$`TME Subtype`, merge_data$Sample_ID_ed)[colnames(result_mean)],
+  Location = setNames(merge_data$Tumor_group, merge_data$Sample_ID_ed)[colnames(result_mean)],
+  DFI = setNames(merge_data$DFI_group, merge_data$Sample_ID_ed)[colnames(result_mean)],
+  na_col='grey',
+  show_annotation_name = TRUE,
+  annotation_name_side = 'left',
+  annotation_name_rot = 0,
+  gp = gpar(col = "white"),
+  col = list(DFI =c('< 90 days'="#1B1919", 
+                                '90-180 days'='#f0f0f0', 
+                                '> 180 days'="#A20056"),
+             Age=c("< 4 years"="#F2E9E3", "4-8 years"="#D3B9A4", "> 8 years"="#AD8360"),
+             Purity=c("< 0.1"="#1A9300", "0.1-0.3"="#1A9993", "0.3-0.7"="#46732E", "> 0.7"="#075149"),
+              Ploidy=c("< 2"="#71D0F5", "2"="#709AE1", "2-3"="#197EC0"),
+              TMB=c("< 0.5"="#F7B6D2", "0.5-1"="#E377C2", "< 2"="#9467BD"),
+              Sex=c('Male'="#3B4992", 'Female'="#8491B4"),
+                      TME=c('ID'="#BC3C29", 'IE'="#E18727", 'IE-ECM'="#FFDC91"),
+                     Location =c("humerus"='#ffc900', "radius"='#ff9500', "femur"='#a0c7f3', "tibia" = '#0067aa',"ulna"="#0080AA", "scapula"="#004699")
+                     ))
+
+```
+
+
+
+```{r}
+           alter_fun = list(
+             background = alter_graphic("rect", width = 0.9, height = 0.9, fill = "#FFFFFF", col = "black"),
+             AMP = alter_graphic("rect", width = 0.85, height = 0.85, fill = cols["AMP"]),
+             DEL = alter_graphic("rect", width = 0.85, height = 0.85, fill = cols["DEL"])
+           )
+```
+
+
+
+```{r}
+n_donors <- ncol(result_mean)
+
+right_anno <- rowAnnotation(N=anno_text_fix(sapply(apply(result_mean, 1, function(x) sum(nchar(x)>0)), 
+                                                   function(x) sprintf("%.0f%% (%.0f)", 100*x/n_donors, x)), 
+                                              rot=0, just='left', location=unit(0, 'npc'), show_name=F,
+                                              height=unit(5, 'mm'), which='row'))
+
+op <- oncoPrint(result_mean, alter_fun=alter_fun, col=cols, row_order = file4$V1,
+                bottom_annotation=anno, top_annotation = ha3,
+                show_column_names=T, 
+                left_annotation = ha, 
+                show_heatmap_legend=T, row_names_side='left', show_pct = F, pct_gp = gpar(fontsize = 12),
+                column_gap = unit(2, "mm"), row_gap = unit(5, "mm"), alter_fun_is_vectorized = FALSE)
+
+#pdf('/home/garga7/Anjali_data/MYC_ddpcr_data/Plots/62_deep_selected_genes_heatmap.pdf', width=14, height=16)
+ComplexHeatmap::draw(op, merge_legend = TRUE, heatmap_legend_side = "bottom",annotation_legend_side = "bottom",annotation_legend_list = list(lgd1, lgd2))
+#dev.off()
+
+```
+
+
+
+
+```{r}
+# count the marker gene data:
+counts <- data.frame(
+  Gene = rownames(result_mean),
+  AMP_Count = apply(result_mean, 1, function(x) sum(x == "AMP", na.rm = TRUE)),
+  AMP_percent = apply(result_mean, 1, function(x) sum(x == "AMP", na.rm = TRUE)/length(x)*100),
+  DEL_Count = apply(result_mean, 1, function(x) sum(x == "DEL", na.rm = TRUE)),
+  DEL_percent = apply(result_mean, 1, function(x) sum(x == "DEL", na.rm = TRUE)/length(x)*100)
+)
+#counts1 <- merge(file2, counts, by.x = "V1", by.y = "Gene", all.x = TRUE)
+
+write.csv(counts,"/home/garga7/Anjali_data/MYC_ddpcr_data/Output_files/deep62_gene_amp_del_count.csv", quote = F, row.names = F)
+
+```
+
+

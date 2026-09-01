@@ -1,0 +1,175 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(readxl)
+```
+
+
+```{r}
+
+Sample_ids <- read_excel("~/Anjali_data/MYC_ddpcr_data/Input/Myc CNV master sheet.xlsx",sheet = "Tissue CNV")
+
+ids <- data.frame("sample_id"=Sample_ids$`Subject Code`[Sample_ids$`Tissue type` %in% "Tumor"])
+ids$sample_id <- gsub("^0","", ids$sample_id) 
+ids$cluster <- "Without myc mutation"
+
+myc_genes_sample <- data.frame(Sample_id =c(
+"201","633","1016" ,"725","1006" ,"704","1703", "613","1412", "708","1015", "616","227", "1103" ,"627","310","640","706","1022", "602","301","701","709","712","713","1001", "1009", "1013" ,"1417", "1801", "2203", "2207", "2213"))
+
+myc_genes_sample$Sample_id <- gsub("^0","", (myc_genes_sample$Sample_id))
+
+ids$cluster <- ifelse(ids$sample_id %in% myc_genes_sample$Sample_id, "With MYC Amp", "Without MYC Amp")
+```
+
+
+
+```{r}
+
+df1 <- read.csv("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/gatk_cnv/step_3/input_file/gatk_cnv_annoated_seg2.csv")
+
+# ddpcr selected 
+df1 <- df1[grep(paste0("^",ids$sample_id,"$",collapse = "|"), df1$sample_id),]
+
+df1_ed <- data.frame("chr"=df1$seqnames,
+             "start"=df1$start,
+             "end"=df1$end,
+             "gene_name"=df1$gene_name,
+             "log2"=df1$calls,
+             "Sample"=df1$sample_id)
+```
+
+```{r}
+
+
+chr_list <- read_excel("~/Anjali_data/MYC_ddpcr_data/Input/chr_list.xlsx")
+chr_list$Chr<- paste0("chr",chr_list$Chr)
+
+#df2 <- read.table("~/Anjali_data/MYC_ddpcr_data/Input/28_ddpcr_samples_WGS_chr_edit.cns", header=TRUE, sep="\t")
+file2 <- read.csv("/home/garga7/Anjali_data/WGS_data/Step_13/output_file/comnined_54_out.csv")
+
+file2 <- merge(file2, chr_list, by.x = "chromosome", by.y = "Refseq")
+
+file2 <- file2[grep(paste0("^",ids$sample_id,"$",collapse = "|"), file2$sample_id),]
+
+
+df2_ed <- data.frame("chr"=file2$chromosome,
+             "start"=file2$start,
+             "end"=file2$end,
+             "gene_name"=file2$gene,
+             "log2"=file2$log2,
+             "Sample"=file2$sample_id)
+
+df <- rbind(df1_ed,df2_ed)
+df <- df[df$chr %in% "chr13",]
+
+```
+
+# with MYC-amp
+```{r}
+id_myc_amp <-  ids$sample_id[ids$cluster %in% "With MYC Amp"]
+id_myc_unamp <-  ids$sample_id[!ids$cluster %in% "With MYC Amp"]
+
+```
+
+# myc_amp
+```{r}
+
+df_myc_amp <- df[grep(paste0("^",id_myc_amp,"$",collapse = "|"), df$Sample),]
+
+# Create a genomic position (midpoint of each bin)
+df_myc_amp <- df_myc_amp %>%
+  mutate(pos = (start + end) / 2)
+
+myc_start <- 25629077
+myc_end   <- 25633621
+
+
+df_myc_amp <- df_myc_amp %>%
+  mutate(type = case_when(
+    log2 > 0.2  ~ "gain",
+    log2 < -0.2 ~ "loss",
+    TRUE        ~ "neutral"
+  ))
+
+
+df_myc_amp$log2_ed <- ifelse(df_myc_amp$log2 > 3, 3,
+                    ifelse(df_myc_amp$log2 < -3, -3, df_myc_amp$log2))
+  
+  
+p <- ggplot(df_myc_amp, aes(x = pos, y = log2_ed)) + 
+ geom_point(aes(color = type), size = 0.5, alpha = 0.8) +
+  geom_smooth(method = "loess", se = FALSE, color = "goldenrod", size = 1) +
+  geom_hline(yintercept = 0, color = "black") +
+ geom_vline(xintercept = myc_start, linetype = "solid", colour = "black") +
+  
+  scale_color_manual(values = c(
+    "neutral" = "gray60",
+    "gain"    = "#E41A1C",
+    "loss"    = "#377EB8"
+  )) +
+  
+  theme_bw() +
+  labs(x = "Genomic position", y = "Log2 ratio") +
+  theme(legend.position = "none")
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/62_deep_seq_scatter_plots_amp.pdf", height = 3, width = 5)
+p
+
+```
+
+
+# myc_unamp
+```{r}
+
+df_myc_unamp <- df[grep(paste0("^",id_myc_unamp,"$",collapse = "|"), df$Sample),]
+
+# Create a genomic position (midpoint of each bin)
+df_myc_unamp <- df_myc_unamp %>%
+  mutate(pos = (start + end) / 2)
+
+myc_start <- 25629077
+myc_end   <- 25633621
+
+
+df_myc_unamp <- df_myc_unamp %>%
+  mutate(type = case_when(
+    log2 > 0.2  ~ "gain",
+    log2 < -0.2 ~ "loss",
+    TRUE        ~ "neutral"
+  ))
+
+
+df_myc_unamp$log2_ed <- ifelse(df_myc_unamp$log2 > 3, 3,
+                    ifelse(df_myc_unamp$log2 < -3, -3, df_myc_unamp$log2))
+  
+  
+p <- ggplot(df_myc_unamp, aes(x = pos, y = log2_ed)) + 
+ geom_point(aes(color = type), size = 0.5, alpha = 0.8) +
+  geom_smooth(method = "loess", se = FALSE, color = "goldenrod", size = 1) +
+  geom_hline(yintercept = 0, color = "black") +
+ geom_vline(xintercept = myc_start, linetype = "solid", colour = "black") +
+  
+  scale_color_manual(values = c(
+    "neutral" = "gray60",
+    "gain"    = "#E41A1C",
+    "loss"    = "#377EB8"
+  )) +
+  
+  theme_bw() +
+  labs(x = "Genomic position", y = "Log2 ratio") +
+  theme(legend.position = "none")
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/62_deep_seq_scatter_plots_unamp.pdf", height = 3, width = 5)
+p
+
+```
+
+

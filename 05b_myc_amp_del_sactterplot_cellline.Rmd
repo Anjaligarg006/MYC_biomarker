@@ -1,0 +1,205 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+```
+
+
+```{r}
+# load files
+
+file1 <- read.delim("~/Anjali_data/CNV_data/Step_15/deep_sequencing/SNV_analysis/gatk_cnv/step_4/output_files/32_k9cellline_gatk_cnv_annoated_seg_withfilter.csv", header = T, sep = ",")
+file1 <- file1[grep("TNO_B|V21_LDCV|PI_KOS_2|OSCA_M11|V21_LDR",file1$sample_id, invert =T),]
+
+# not included in ddpcr
+file1 <- file1[grep("8_FACC_18_COS3_A|15_OSCA_40_A|39_TOK_C",file1$sample_id, invert =T),]
+
+
+file1$sample_id <- gsub("^[0-9]+_","",file1$sample_id)
+
+file1 <- file1 %>%
+  mutate(gene = str_split(gene_name, ";")) %>%      
+  unnest(gene) 
+
+```
+
+
+
+```{r}
+
+ids <- data.frame("sample_id"=unique(file1$sample_id))
+ids$cluster <- "Without myc mutation"
+
+myc_genes_sample <- data.frame(Sample_id =c("OSCA_32_B","FACC_19_COS_32_C","OSCA_8_A","PI_KOS_C","OSCA_29_A","FACC19_COS12_A","Eva_C","OSCA_78_B","FACC19_COS17_A","OSCA_71_A","D17_C","MC_KOS_A","BW_KOS_A","CS_KOS_B","SK_KOS_A","Tom_B","PAYTON_A","MC_KOS_SM1_GFP_C","McKingley_A"))
+
+ids$cluster <- ifelse(ids$sample_id %in% myc_genes_sample$Sample_id, "With MYC Amp", "Without MYC Amp")
+
+```
+
+
+```{r}
+df <- data.frame("chr"=file1$seqnames,
+             "start"=file1$start,
+             "end"=file1$end,
+             "gene_name"=file1$gene,
+             "log2"=file1$calls,
+             "Sample"= file1$sample_id)
+
+df <- df[df$chr %in% "chr13",]
+
+
+```
+
+
+# with MYC-amp
+```{r}
+id_myc_amp <-  ids$sample_id[ids$cluster %in% "With MYC Amp"]
+id_myc_unamp <-  ids$sample_id[!ids$cluster %in% "With MYC Amp"]
+
+```
+
+# myc_amp
+```{r}
+
+df_myc_amp <- df[grep(paste0("^",id_myc_amp,"$",collapse = "|"), df$Sample),]
+
+# Create a genomic position (midpoint of each bin)
+df_myc_amp <- df_myc_amp %>%
+  mutate(pos = (start + end) / 2)
+
+myc_start <- 25629077
+myc_end   <- 25633621
+
+
+df_myc_amp <- df_myc_amp %>%
+  mutate(type = case_when(
+    log2 > 0.2  ~ "gain",
+    log2 < -0.2 ~ "loss",
+    TRUE        ~ "neutral"
+  ))
+
+
+df_myc_amp$log2_ed <- ifelse(df_myc_amp$log2 > 3, 3,
+                    ifelse(df_myc_amp$log2 < -3, -3, df_myc_amp$log2))
+  
+  
+p <- ggplot(df_myc_amp, aes(x = pos, y = log2_ed)) + 
+ geom_point(aes(color = type), size = 0.5, alpha = 0.8) +
+  geom_smooth(method = "loess", se = FALSE, color = "goldenrod", size = 1) +
+  geom_hline(yintercept = 0, color = "black") +
+ geom_vline(xintercept = myc_start, linetype = "solid", colour = "black") +
+  
+  scale_color_manual(values = c(
+    "neutral" = "gray60",
+    "gain"    = "#E41A1C",
+    "loss"    = "#377EB8"
+  )) +
+  
+  theme_bw() +
+  labs(x = "Genomic position", y = "Log2 ratio") +
+  theme(legend.position = "none")
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/24_cell_lines_scatter_plots_amp.pdf", height = 3, width = 5)
+p
+
+```
+
+
+# myc_unamp
+```{r}
+
+df_myc_unamp <- df[grep(paste0("^",id_myc_unamp,"$",collapse = "|"), df$Sample),]
+
+# Create a genomic position (midpoint of each bin)
+df_myc_unamp <- df_myc_unamp %>%
+  mutate(pos = (start + end) / 2)
+
+myc_start <- 25629077
+myc_end   <- 25633621
+
+
+df_myc_unamp <- df_myc_unamp %>%
+  mutate(type = case_when(
+    log2 > 0.2  ~ "gain",
+    log2 < -0.2 ~ "loss",
+    TRUE        ~ "neutral"
+  ))
+
+
+df_myc_unamp$log2_ed <- ifelse(df_myc_unamp$log2 > 3, 3,
+                    ifelse(df_myc_unamp$log2 < -3, -3, df_myc_unamp$log2))
+  
+  
+p <- ggplot(df_myc_unamp, aes(x = pos, y = log2_ed)) + 
+ geom_point(aes(color = type), size = 0.5, alpha = 0.8) +
+ # geom_smooth(method = "loess", se = FALSE, color = "goldenrod", size = 1) +
+  geom_hline(yintercept = 0, color = "black") +
+ geom_vline(xintercept = myc_start, linetype = "solid", colour = "black") +
+  
+  scale_color_manual(values = c(
+    "neutral" = "gray60",
+    "gain"    = "#E41A1C",
+    "loss"    = "#377EB8"
+  )) +
+  
+  theme_bw() +
+  labs(x = "Genomic position", y = "Log2 ratio") +
+  theme(legend.position = "none")
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/24_cell_lines_scatter_plots_unamp.pdf", height = 3, width = 5)
+p
+
+```
+
+
+```{r}
+# 
+# # Create a genomic position (midpoint of each bin)
+# df <- df %>%
+#   mutate(pos = (start + end) / 2)
+# 
+# myc_start <- 25629077
+# myc_end   <- 25633621
+# 
+# 
+# df <- df %>%
+#   mutate(type = case_when(
+#     log2 > 0.2  ~ "gain",
+#     log2 < -0.2 ~ "loss",
+#     TRUE        ~ "neutral"
+#   ))
+# 
+# 
+# df$log2_ed <- ifelse(df$log2 > 3, 3,
+#                     ifelse(df$log2 < -3, -3, df$log2))
+#   
+# p <- ggplot(df, aes(x = pos, y = log2)) + 
+#  geom_point(aes(color = type), size = 0.5, alpha = 0.8) +
+#   geom_smooth(method = "loess", se = FALSE, color = "goldenrod", size = 1) +
+#   geom_hline(yintercept = 0, color = "black") +
+#  geom_vline(xintercept = myc_start, linetype = "solid", colour = "black") +
+#   
+#   scale_color_manual(values = c(
+#     "neutral" = "gray60",
+#     "gain"    = "#E41A1C",
+#     "loss"    = "#377EB8"
+#   )) +
+#   
+#   theme_bw() +
+#   labs(x = "Genomic position", y = "Log2 ratio") +
+#   theme(legend.position = "none")
+# 
+# pdf("~/Anjali_data/MYC_ddpcr_data/Plots/24_cell_lines_scatter_plots.pdf", height = 3, width = 5)
+# p
+
+```
+

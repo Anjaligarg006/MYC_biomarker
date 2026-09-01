@@ -1,0 +1,136 @@
+Jai Babe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(psych)
+setwd("~/Anjali_data/MYC_ddpcr_data/Input")
+```
+
+
+```{r}
+# IHC
+file1 <- read_excel("~/Anjali_data/MYC_ddpcr_data/Input/IHC_data/MYC_IHC_10Aug26.xlsx", sheet = "MYC_IHC_10Aug26")
+
+file1 <- file1[file1$X %in% "Annotation" & file1$Above_threshold %in% "Yes",]
+
+file1$Sample <- sprintf("%04d", as.numeric(file1$Sample))
+
+```
+
+
+```{r}
+
+#ddpcr
+
+All_MYC_reps_FFPE_Frozen <- read_excel("~/Anjali_data/MYC_ddpcr_data/Input/All_MYC_reps_081426.xlsx")
+All_MYC_reps_FFPE_Frozen <- All_MYC_reps_FFPE_Frozen[!All_MYC_reps_FFPE_Frozen$Type %in% "Normal",]
+
+All_MYC_reps_FFPE_Frozen$ID <- sprintf("%04d", as.numeric(All_MYC_reps_FFPE_Frozen$ID))
+
+
+All_MYC_reps_FFPE <- All_MYC_reps_FFPE_Frozen[All_MYC_reps_FFPE_Frozen$State %in% "FFPE",]
+
+All_MYC_reps_Frozen <- All_MYC_reps_FFPE_Frozen[All_MYC_reps_FFPE_Frozen$State %in% "Frozen",]
+
+
+All_MYC_reps_FFPE_ed <- All_MYC_reps_FFPE %>% group_by(ID) %>% mutate("FFPE_mean_cnv"= mean(CNV)) %>% select(ID, FFPE_mean_cnv) %>% unique()
+
+All_MYC_reps_Frozen_ed <- All_MYC_reps_Frozen %>% group_by(ID) %>% mutate("Frozen_mean_cnv"= mean(CNV)) %>% select(ID, Frozen_mean_cnv) %>% unique()
+
+#WGS log2 ratio
+myc_log2 <- read.csv("~/Anjali_data/MYC_ddpcr_data/Output_files/deep62_log2ratio.csv")
+myc_log2$Samples<- sprintf("%04d", myc_log2$Samples)
+
+```
+
+
+```{r}
+# FFPE samples:  [1]  611 1402  725  704  613  634 1412  627  904  409  640  227 1022  521  407  313  314  323  411 701  703  712 1009 1417 2207 2213 2304 2307
+```
+
+
+```{r}
+# transcriptomics
+
+mRNA_df<- read.delim("~/Anjali_data/MYC_ddpcr_data/Output_files/mRNAseq62_rawdata.txt")
+
+mRNA_df <- mRNA_df[mRNA_df$GENE_ID %in% "MYC",] %>% pivot_longer(!GENE_ID, names_to = "Sample", values_to = "expr_val")
+mRNA_df$Sample <- as.numeric(gsub("^X|_PRIM_OS","",mRNA_df$Sample))
+mRNA_df$Sample <- sprintf("%04d",mRNA_df$Sample)
+mRNA_df$expr_val <- scale(mRNA_df$expr_val)
+```
+
+
+```{r}
+
+# tumor selected correlation -all slide
+selected_layer.df1 <- merge(file1,myc_log2, by.x = "Sample", by.y = "Samples",all.x = T)
+selected_layer.df2 <- merge(selected_layer.df1,All_MYC_reps_FFPE_ed, by.x = "Sample", by.y = "ID",all.x = T)
+selected_layer.df3 <- merge(selected_layer.df2,All_MYC_reps_Frozen_ed, by.x = "Sample", by.y = "ID",all.x = T)
+selected_layer.df4 <- merge(selected_layer.df3,mRNA_df, by.x = "Sample", by.y = "Sample",all.x = T)
+
+```
+
+
+```{r}
+
+selected_layer_cor_df2 <- selected_layer.df4 %>% select(Positive.Stain.1.H.Score, log2ratio, FFPE_mean_cnv, Frozen_mean_cnv,expr_val)
+
+#selected_layer_cor_df2 <- selected_layer_cor_df2[c(2,4,3,5,1)]
+
+#colnames(selected_layer_cor_df2) <- c("WGS copy number","ddPCR (Frozen)","ddPCR (FFPE)","Transcriptomics","IHC")
+
+cor_results <- corr.test(
+  selected_layer_cor_df2,
+  method = "spearman",
+  use = "pairwise"
+)
+
+# Correlation coefficients
+
+cor_results$r <- cor_results$r[c(2,4,3,5,1),c(2,4,3,5,1)]
+cor_results$r
+
+# P-values
+
+cor_results$p <- cor_results$p[c(2,4,3,5,1),c(2,4,3,5,1)]
+
+cor_results$p
+```
+
+
+
+```{r}
+library(corrplot)
+
+pdf("~/Anjali_data/MYC_ddpcr_data/Plots/MYC_correlation_plot.pdf")
+corrplot(
+  cor_results$r,
+  method = "color",
+  type = "upper",
+ # order = "hclust",
+  p.mat = cor_results$p,
+  sig.level = c(0.001, 0.01, 0.05),
+  insig = "label_sig",
+  pch.cex = 1.2,
+  pch.col = "black",
+  addCoef.col = "black",
+  number.digits = 3,
+  tl.col = "black",
+  tl.srt = 45,
+   col = colorRampPalette(c("#b2182b", "white", "#3a86d4"))(200)
+)
+
+```
+
+
